@@ -2,7 +2,7 @@
 use clap::{Parser, Subcommand};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use std::{fs::{OpenOptions, Permissions}, io::Write, net::SocketAddrV4, path::PathBuf};
-use bittorrent_starter_rust::{peers::{Message, MessageFramer, MessageTag, PeerHandShake, Piece, Request}, torrent::{Keys, Torrent}, tracker::{urlencode, TrackerRequest, TrackerResponse}};
+use bittorrent_starter_rust::{peers::{Message, MessageFramer, MessageTag, PeerHandShake, Piece, Request}, torrent::{Keys, Torrent}, tracker::{urlencode, TrackerRequest, TrackerResponse}, BLOCK_MAX};
 use anyhow::Context;
 use hex;
 use futures_util::stream::StreamExt;
@@ -10,9 +10,10 @@ use futures_util::sink::SinkExt;
 use sha1::{Digest, Sha1};
 
 
+
+
 #[allow(unused_variables, unused_imports)]
 
-const BLOCK_MAX : usize = 1 << 14;
 
 
 
@@ -25,16 +26,22 @@ struct Args {
 }
 
 #[derive(Subcommand)]
+#[clap(rename_all = "snake_case" )]
 enum Command { 
     Decode { value : String}, 
     Info { torrent : PathBuf},
     Peers { torrent : PathBuf},
     Handshake { torrent: PathBuf , peer : String},
     DownloadPiece { 
-        #[arg(short)]
+        #[arg(short, long)]
         output : PathBuf,
         torrent : PathBuf,
         piece : usize
+    },
+    Download { 
+        #[arg(short, long)]
+        output: PathBuf,
+        torrent : PathBuf
     }
 }
 
@@ -132,6 +139,7 @@ async fn main() -> anyhow::Result<()> {
             let res = reqwest::get(tracker_url).await?;
             let res_bytes = res.bytes().await.expect("expected response bytes");
             let tracker_response : TrackerResponse = serde_bencode::from_bytes(&res_bytes).expect("Tracker Response");
+            eprintln!("{:?}", tracker_response.peers.0);
             let peer = tracker_response.peers.0[1];
             let mut peer_conn = tokio::net::TcpStream::connect(peer).await.context("connect to peer")?;
             let mut handshake = PeerHandShake::new(&info_hash, b"00112233445566778899");
@@ -202,6 +210,13 @@ async fn main() -> anyhow::Result<()> {
             //(&mut std::fs::OpenOptions::new().write(true).create(true).open(output).expect("here")).write_all(&all_blocks).await.expect("panicked to write");       
             
         },
+        Command::Download { output, torrent } => {
+            let torrent = Torrent::read(torrent).await?;
+            torrent.print_tree();
+            let files = torrent.download_all().await?;
+            let mut fp = tokio::fs::OpenOptions::new().write(true).create(true).open(output).await?;
+            fp.write(files.into_iter().next().expect("").bytes()).await?;
+        }
     }
     Ok(())
     

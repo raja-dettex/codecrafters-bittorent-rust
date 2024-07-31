@@ -2,7 +2,11 @@ pub mod torrent;
 pub mod hash;
 pub mod tracker;
 pub mod peers;
+pub mod download;
+pub mod piece;
 
+
+pub const BLOCK_MAX: usize = 1 << 14;
 
 #[allow(dead_code)]
 pub fn decode_bencoded_value(encoded_value: &str) -> (serde_json::Value, &str) {

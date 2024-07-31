@@ -1,6 +1,10 @@
+use std::path::Path;
+
+use anyhow::{Context, Ok};
 use serde::*;
 use super::hash::Hashes;
 use sha1::{Sha1, Digest};
+use super::download;
 #[derive( Clone, Serialize, Deserialize, Debug)]
 pub struct Torrent { 
     // URL to a "tracker", which is a central server that keeps track of peers participating in the sharing of a torrent 
@@ -16,6 +20,31 @@ impl Torrent {
         hasher.update(info_encoded);
         let info_hash = hasher.finalize();
         info_hash.try_into().expect("GenericArray<u8> to [u8;20]")
+    }
+
+    pub async fn read(file : impl AsRef<Path>) -> anyhow::Result<Self>  {
+        let mut f = tokio::fs::read(file).await.context("read torren file bytes")?;
+        let tf_info: Torrent = serde_bencode::from_bytes(&mut f).context("parse the file")?;
+        Ok(tf_info)
+    }
+    pub fn length(&self) -> usize { 
+        match &self.info.keys {
+            Keys::SingleFile { length } => *length,
+            Keys::MultiFile { files } => files.iter().map(|file| file.length).sum(),
+        }
+    }
+    pub fn print_tree(&self)  { 
+        match &self.info.keys {
+            Keys::SingleFile { .. } => eprintln!("{}", self.info.name),
+            Keys::MultiFile { files } => { 
+                for file in files { 
+                    eprintln!("{:?}", file.path.join(std::path::MAIN_SEPARATOR_STR));
+                }
+            },
+        }
+    }
+    pub async fn download_all(&self) -> anyhow::Result<download::Downloaded> { 
+        download::all(&self).await
     }
 }
 
@@ -47,7 +76,7 @@ pub enum Keys {
         length : usize
     }, 
     MultiFile { 
-        file  : Vec<FileInfo>
+        files  : Vec<FileInfo>
     }
 }
 

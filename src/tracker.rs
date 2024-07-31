@@ -1,6 +1,7 @@
+use anyhow::Ok;
 use serde::{Deserialize, Serialize};
 
-use crate::peers::Peers;
+use crate::{peers::Peers, torrent::Torrent};
 
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -34,6 +35,28 @@ pub struct TrackerResponse {
     pub peers : Peers
     // A string, which contains list of peers that your client can connect to.
     // Each peer is represented using 6 bytes. The first 4 bytes are the peer's IP address and the last 2 bytes are the peer's port number.
+}
+
+
+impl TrackerResponse { 
+    pub(crate) async fn query_tracker_info(t : &Torrent, info_hash : [u8; 20])  -> anyhow::Result<Self> {
+         
+        let request = TrackerRequest {  
+            peer_id : "00112233445566778899".to_string(),
+            port : 6881,
+            uploaded: 0, 
+            downloaded : 0,
+            left : t.clone().length(), 
+            compact : 1
+        };
+        
+        let query_params = serde_urlencoded::to_string(&request).expect("encode into url params");
+        let tracker_url = format!("{}?{}&info_hash={}", t.announce, query_params, &urlencode(&info_hash));
+        let res = reqwest::get(tracker_url).await?;
+        let res_bytes = res.bytes().await.expect("expected response bytes");
+        let tracker_response : TrackerResponse = serde_bencode::from_bytes(&res_bytes).expect("Tracker Response");
+        Ok(tracker_response)
+    }
 }
 
  
